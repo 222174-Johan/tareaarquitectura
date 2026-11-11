@@ -1962,3 +1962,10 @@ svg {
     animation: none;
   }
 }
+
+/* Seguimiento independiente del comprobante de demostración. */
+.billing-number {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+}

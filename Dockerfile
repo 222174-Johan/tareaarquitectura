@@ -9,7 +9,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1
 WORKDIR /app
 COPY backend/ ./
 COPY tools/ /app/tools/
-RUN pip install . && useradd --uid 10001 --create-home appuser
+RUN pip install --timeout 120 --retries 10 . && useradd --uid 10001 --create-home appuser
 COPY --from=frontend /web/dist /app/frontend/dist
 USER appuser
 EXPOSE 8000

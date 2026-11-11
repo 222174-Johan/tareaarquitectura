@@ -20,6 +20,9 @@ class Settings(BaseSettings):
         default_factory=lambda: f"{socket.gethostname()}-{os.getpid()}-{uuid.uuid4().hex[:8]}"
     )
     frontend_dist: str = "/app/frontend/dist"
+    # S11: solo variables en backend / worker.
+    billing_base_url: str = ""
+    billing_token: SecretStr = SecretStr("")
     enable_docs: bool = False
 
     body_limit_bytes: int = Field(default=16384, ge=1024, le=1048576)

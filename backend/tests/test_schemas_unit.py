@@ -64,3 +64,9 @@ def test_lab_run_validation() -> None:
         LabRunCreate(stock="50")
     with pytest.raises(ValidationError):
         LabRunCreate(stock=True)
+
+
+def test_order_item_rejects_numeric_strings() -> None:
+    for quantity in ("1", "2", "5"):
+        with pytest.raises(ValidationError):
+            OrderItemIn(product_id="nova-headphones", quantity=quantity)

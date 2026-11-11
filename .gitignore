@@ -17,3 +17,7 @@ DESIGN.md
 .impeccable/
 .bridge-probe
 *.log
+
+.s11-backup/
+*.pyc
+*.zip

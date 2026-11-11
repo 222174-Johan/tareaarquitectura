@@ -9,7 +9,7 @@ import {
 import { el, icon } from './dom';
 import { formatDateTime, formatMoney } from './format';
 import { productImage } from './shell';
-import type { CartLine, Catalog, NotificationStatus, Order, Product } from './types';
+import type { CartLine, Catalog, NotificationStatus, Order, OrderBilling, Product } from './types';
 
 export type CatalogState = 'loading' | 'ready' | 'error';
 export type PollState = 'idle' | 'polling' | 'timeout' | 'error';
@@ -482,7 +482,10 @@ function stockNote(
 export function receiptPanelNodes(
   order: Order | null,
   pollState: PollState,
-  pollMessage: string
+  pollMessage: string,
+  billing: OrderBilling | null,
+  billingPollState: PollState,
+  billingMessage: string
 ): Node[] {
   if (!order) {
     const wrapper = el('div', { class: 'panel-message' });
@@ -578,6 +581,7 @@ export function receiptPanelNodes(
     banner,
     idBlock,
     notification,
+    billingNode(billing, billingPollState, billingMessage),
     el('h3', { class: 'section-label' }, 'Productos'),
     items,
     total,
@@ -588,6 +592,52 @@ export function receiptPanelNodes(
     ),
     actions
   ];
+}
+
+export function billingNode(
+  billing: OrderBilling | null,
+  state: PollState,
+  message: string
+): HTMLElement {
+  const done = billing?.status === 'issued';
+  const failed = billing?.status === 'failed' || state === 'error';
+  const tone = done ? 'sent' : failed ? 'failed' : 'pending';
+  const label = done
+    ? 'Comprobante generado'
+    : failed
+      ? (billing?.status === 'failed' ? 'Facturación pendiente de recuperación' : 'No se pudo consultar facturación')
+      : billing?.status === 'processing'
+        ? 'Procesando comprobante'
+        : 'Facturación pendiente';
+  const detail = done
+    ? 'Comprobante interno de demostración (no es un pago ni un comprobante SUNAT).'
+    : billing?.status === 'failed'
+      ? 'El pedido sigue confirmado. La recuperación requiere un reintento desde el backend.'
+      : message || 'El pedido sigue confirmado mientras se procesa la facturación.';
+  const wrapper = el('div', {
+    class: `notice notice-${tone}`,
+    role: 'status',
+    'aria-live': 'polite',
+    'data-receipt-billing': ''
+  });
+  wrapper.append(
+    el('div', { class: 'notice-head' },
+      el('span', { class: `status-dot status-dot-${tone}`, 'aria-hidden': 'true' }),
+      el('p', { class: 'notice-title' }, label)
+    ),
+    el('p', { class: 'notice-text' }, detail)
+  );
+  if (done && billing?.invoice_number) {
+    wrapper.append(el('p', { class: 'notice-meta billing-number' }, billing.invoice_number));
+  } else if (state === 'polling') {
+    wrapper.append(el('p', { class: 'notice-meta' },
+      el('span', { class: 'spinner', 'aria-hidden': 'true' }),
+      'Consultando el estado de facturación…'
+    ));
+  } else if (state === 'timeout' || state === 'error' || billing?.status === 'failed') {
+    wrapper.append(actionButton('billing-poll-again', 'Actualizar estado de facturación', 'refresh'));
+  }
+  return wrapper;
 }
 
 export function notificationNode(

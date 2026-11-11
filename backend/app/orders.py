@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import hashlib
 import json
 import uuid
@@ -11,9 +10,10 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .db import CAMPAIGN, utcnow
+from .billing import billing_payload
+from .db import CAMPAIGN, PUBLIC_DATASET, utcnow
 from .events import build_order_created_event, iso8601
-from .models import Order, OrderItem, Outbox, Product
+from .models import BillingTask, Order, OrderItem, Outbox, Product
 from .schemas import OrderCreate
 from .security import (
     ApiError,
@@ -145,10 +145,16 @@ async def _create_or_replay(
             total_cents=total_cents,
             created_at=created_at,
             snapshot=snapshot,
-        )
+        )        
         session.add(order)
 
+        # Guardar primero el pedido en PostgreSQL.
+        # Es necesario antes de insertar billing_tasks,
+        # porque esa tabla tiene una clave foránea a orders.
+        await session.flush()
+
         for item in items_out:
+
             session.add(
                 OrderItem(
                     order_id=order_id,
@@ -166,6 +172,7 @@ async def _create_or_replay(
                 for item in payload.items
             ],
             created_at,
+            total_cents,
         )
         session.add(
             Outbox(
@@ -178,13 +185,16 @@ async def _create_or_replay(
             )
         )
 
+        # S11: tarea y snapshot persistidos atómicamente con el pedido público.
+        # El POST HTTPS ocurre posteriormente en worker, nunca en esta transacción.
+        if dataset_id == PUBLIC_DATASET:
+            session.add(BillingTask(
+                order_id=order_id, dataset_id=dataset_id,
+                payload=billing_payload(snapshot), status="pending", updated_at=created_at
+            ))
+
         await session.flush()
         return snapshot
-
-
-async def _confirmation_lead(delay_ms: int) -> None:
-    if delay_ms > 0:
-        await asyncio.sleep(delay_ms / 1000)
 
 
 @router.get("/api/v1/products")
@@ -239,7 +249,6 @@ async def create_order(
         request_hash,
         payload,
     )
-    await _confirmation_lead(context.notification_delay_ms)
     return JSONResponse(
         status_code=201,
         content=snapshot,

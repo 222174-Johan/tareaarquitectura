@@ -22,6 +22,18 @@ export interface Catalog {
 
 export type NotificationStatus = 'pending' | 'sent' | 'failed';
 
+// Estado independiente: no se añade al JSON original del pedido S09.
+export type BillingStatus = 'pending' | 'processing' | 'issued' | 'failed';
+
+export interface OrderBilling {
+  order_id: string;
+  status: BillingStatus;
+  invoice_id: string | null;
+  invoice_number: string | null;
+  attempts: number;
+  last_error_code: string | null;
+}
+
 export interface OrderLine {
   product_id: string;
   name: string;

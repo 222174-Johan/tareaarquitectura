@@ -116,6 +116,26 @@ class EventRecord(Base):
     __table_args__ = (Index("ix_events_dataset", "dataset_id"),)
 
 
+class BillingTask(Base):
+    """Estado de facturación distinto de notification_status."""
+    __tablename__ = "billing_tasks"
+
+    order_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("orders.id", ondelete="CASCADE"), primary_key=True
+    )
+    dataset_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    payload: Mapped[dict] = mapped_column(JSON_VALUE, nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending")
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    invoice_id: Mapped[uuid.UUID | None] = mapped_column(Uuid(as_uuid=True), nullable=True)
+    invoice_number: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    last_error_code: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=utcnow
+    )
+    __table_args__ = (Index("ix_billing_tasks_status_updated", "status", "updated_at"),)
+
+
 class Notification(Base):
     __tablename__ = "notifications"
 

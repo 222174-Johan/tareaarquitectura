@@ -1,6 +1,6 @@
 import '@fontsource-variable/manrope';
 import './styles.css';
-import { ApiError, createOrder, fetchCatalog, fetchOrder, friendlyError, isAbortError } from './api';
+import { ApiError, createOrder, fetchCatalog, fetchOrder, fetchOrderBilling, friendlyError, isAbortError } from './api';
 import {
   MAX_DISTINCT_PRODUCTS,
   addLine,
@@ -26,13 +26,14 @@ import {
   writeStoredCart
 } from './storage';
 import type { AttemptRecord } from './storage';
-import type { CartLine, Catalog, Order, Product } from './types';
+import type { CartLine, Catalog, Order, OrderBilling, Product } from './types';
 import {
   applyStockChip,
   cartPanelNodes,
   configureAddButton,
   emptyCatalogNode,
   notificationNode,
+  billingNode,
   receiptPanelNodes,
   renderProductCard,
   skeletonCards,
@@ -71,6 +72,13 @@ let pollAbort: AbortController | null = null;
 let pollTimer: number | null = null;
 let pollToken = 0;
 let pollAttempts = 0;
+let activeBilling: OrderBilling | null = null;
+let billingPollState: PollState = 'idle';
+let billingMessage = '';
+let billingPollAbort: AbortController | null = null;
+let billingPollTimer: number | null = null;
+let billingPollToken = 0;
+let billingPollAttempts = 0;
 let lastFocused: HTMLElement | null = null;
 let toastTimer: number | null = null;
 
@@ -571,6 +579,7 @@ function openPanel(mode: PanelMode): void {
 function setPanelMode(mode: PanelMode): void {
   if (panelMode === 'receipt' && mode !== 'receipt') {
     stopPolling();
+    stopBillingPolling();
   }
   if (panelMode === 'track' && mode !== 'track') {
     abortTracking();
@@ -607,6 +616,7 @@ function onPanelCancel(event: Event): void {
 
 function onPanelClose(): void {
   stopPolling();
+  stopBillingPolling();
   abortTracking();
   document.documentElement.classList.remove('has-dialog');
   const target = lastFocused;
@@ -684,6 +694,9 @@ function onPanelBodyClick(event: MouseEvent): void {
     case 'poll-again':
       startPolling();
       break;
+    case 'billing-poll-again':
+      startBillingPolling();
+      break;
     case 'open-track':
       setPanelMode('track');
       break;
@@ -738,7 +751,7 @@ function renderPanelBody(resetScroll: boolean): void {
       creating
     });
   } else if (panelMode === 'receipt') {
-    nodes = receiptPanelNodes(activeOrder, pollState, pollMessage);
+    nodes = receiptPanelNodes(activeOrder, pollState, pollMessage, activeBilling, billingPollState, billingMessage);
   } else {
     nodes = trackPanelNodes(trackingValue, trackingError, trackingBusy);
   }
@@ -883,7 +896,9 @@ async function confirmOrder(): Promise<void> {
 function beginReceipt(order: Order): void {
   abortTracking();
   stopPolling();
+  stopBillingPolling();
   activeOrder = order;
+  activeBilling = null;
   panelMode = 'receipt';
   pollState = order.notification_status === 'pending' ? 'polling' : 'idle';
   pollMessage = '';
@@ -892,6 +907,7 @@ function beginReceipt(order: Order): void {
   if (order.notification_status === 'pending') {
     startPolling();
   }
+  startBillingPolling();
 }
 
 function startPolling(): void {
@@ -984,6 +1000,81 @@ function updateReceiptNotification(): void {
   if (current) {
     current.replaceWith(notificationNode(activeOrder, pollState, pollMessage));
   }
+}
+
+function clearBillingPolling(): void {
+  if (billingPollTimer !== null) {
+    window.clearTimeout(billingPollTimer);
+    billingPollTimer = null;
+  }
+  if (billingPollAbort) {
+    billingPollAbort.abort();
+    billingPollAbort = null;
+  }
+}
+
+function stopBillingPolling(): void {
+  billingPollToken += 1;
+  clearBillingPolling();
+  billingPollState = 'idle';
+  billingMessage = '';
+}
+
+function updateReceiptBilling(): void {
+  if (!ui.panel.open || panelMode !== 'receipt') {
+    return;
+  }
+  const current = ui.panelBody.querySelector('[data-receipt-billing]');
+  if (current) {
+    current.replaceWith(billingNode(activeBilling, billingPollState, billingMessage));
+  }
+}
+
+function startBillingPolling(): void {
+  if (!activeOrder) {
+    return;
+  }
+  const orderId = activeOrder.id;
+  stopBillingPolling();
+  billingPollState = 'polling';
+  billingMessage = '';
+  billingPollAttempts = 0;
+  const token = ++billingPollToken;
+  const controller = new AbortController();
+  billingPollAbort = controller;
+  updateReceiptBilling();
+
+  const tick = async (): Promise<void> => {
+    if (token !== billingPollToken) return;
+    billingPollAttempts += 1;
+    try {
+      const next = await fetchOrderBilling(orderId, controller.signal);
+      if (token !== billingPollToken || activeOrder?.id !== orderId) return;
+      activeBilling = next;
+      if (next.status === 'issued' || next.status === 'failed') {
+        billingPollState = 'idle';
+        clearBillingPolling();
+        updateReceiptBilling();
+        return;
+      }
+      if (billingPollAttempts >= maxPollAttempts) {
+        billingPollState = 'timeout';
+        billingMessage = 'La facturación sigue pendiente. Puedes actualizarla de nuevo.';
+        clearBillingPolling();
+        updateReceiptBilling();
+        return;
+      }
+      updateReceiptBilling();
+      billingPollTimer = window.setTimeout(() => { void tick(); }, pollIntervalMs);
+    } catch (error) {
+      if (isAbortError(error) || token !== billingPollToken) return;
+      billingPollState = 'error';
+      billingMessage = 'No se pudo consultar el estado de facturación. El pedido sigue confirmado.';
+      clearBillingPolling();
+      updateReceiptBilling();
+    }
+  };
+  billingPollTimer = window.setTimeout(() => { void tick(); }, pollWarmupMs);
 }
 
 async function lookupOrder(): Promise<void> {

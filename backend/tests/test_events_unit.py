@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 
-from app.events import validate_cloud_event
+from app.events import build_order_created_event, validate_cloud_event
 
 
 def complete_event() -> dict:
@@ -57,3 +57,15 @@ def test_event_requires_non_negative_total() -> None:
 
     event["data"]["total_cents"] = "100"
     assert any("total_cents" in error for error in validate_cloud_event(event))
+
+
+def test_build_order_created_event_has_full_required_data() -> None:
+    order_id = uuid.uuid4()
+    items = [{"product_id": "nova-headphones", "quantity": 2}]
+    event = build_order_created_event(
+        order_id, items, datetime.now(timezone.utc), 259800
+    )
+    assert event["data"]["order_id"] == str(order_id)
+    assert event["data"]["total_cents"] == 259800
+    assert event["data"]["items"] == items
+    assert validate_cloud_event(event) == []

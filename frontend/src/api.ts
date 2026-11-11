@@ -3,6 +3,7 @@ import type {
   Campaign,
   NotificationStatus,
   Order,
+  OrderBilling,
   OrderLine,
   Product
 } from './types';
@@ -286,6 +287,37 @@ export async function createOrder(
 export async function fetchOrder(id: string, signal?: AbortSignal): Promise<Order> {
   const response = await request(`/api/v1/orders/${encodeURIComponent(id)}`, { signal });
   return parseOrder(response.payload);
+}
+
+// Consultar solo a nuestro backend S09: nunca enviar tokens de Supabase desde el navegador.
+export async function fetchOrderBilling(id: string, signal?: AbortSignal): Promise<OrderBilling> {
+  const response = await request(`/api/v1/orders/${encodeURIComponent(id)}/billing`, { signal });
+  const value = response.payload;
+  if (!isRecord(value)) {
+    throw invalidResponse();
+  }
+  const status = value.status;
+  if (status !== 'pending' && status !== 'processing' && status !== 'issued' && status !== 'failed') {
+    throw invalidResponse();
+  }
+  const nullableString = (key: string): string | null => {
+    if (value[key] === null) {
+      return null;
+    }
+    return readString(value, key);
+  };
+  const billing: OrderBilling = {
+    order_id: readString(value, 'order_id'),
+    status,
+    invoice_id: nullableString('invoice_id'),
+    invoice_number: nullableString('invoice_number'),
+    attempts: readInteger(value, 'attempts', 0),
+    last_error_code: nullableString('last_error_code')
+  };
+  if (billing.order_id !== id || (status === 'issued' && (!billing.invoice_id || !billing.invoice_number))) {
+    throw invalidResponse();
+  }
+  return billing;
 }
 
 export function friendlyError(error: unknown, context: 'catalog' | 'create' | 'order'): FriendlyError {

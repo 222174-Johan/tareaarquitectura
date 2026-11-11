@@ -14,6 +14,7 @@ from starlette.staticfiles import StaticFiles
 
 from .config import get_settings
 from .db import Database
+from .billing_routes import router as billing_router
 from .events import create_redis
 from .lab import router as lab_router
 from .orders import router as orders_router
@@ -59,6 +60,7 @@ app = FastAPI(
 
 app.add_middleware(HardeningMiddleware, settings=settings)
 app.include_router(orders_router)
+app.include_router(billing_router)
 app.include_router(lab_router)
 
 
